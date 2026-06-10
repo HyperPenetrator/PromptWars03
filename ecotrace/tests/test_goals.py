@@ -111,6 +111,23 @@ class TestUpdateGoal:
         response = client.patch("/goals/999", json={"target_co2e_kg": 50.0})
         assert response.status_code == 404
 
+    def test_update_deadline(self, client: TestClient):
+        """Update only the deadline of a goal."""
+        deadline = (date.today() + timedelta(days=30)).isoformat()
+        new_deadline = (date.today() + timedelta(days=60)).isoformat()
+        create_resp = client.post("/goals", json={
+            "category": "energy",
+            "target_co2e_kg": 100.0,
+            "deadline": deadline,
+        })
+        goal_id = create_resp.json()["id"]
+
+        update_resp = client.patch(f"/goals/{goal_id}", json={
+            "deadline": new_deadline,
+        })
+        assert update_resp.status_code == 200
+        assert update_resp.json()["deadline"] == new_deadline
+
 
 class TestDeleteGoal:
     """DELETE /goals/{id} — remove goals."""
@@ -130,3 +147,8 @@ class TestDeleteGoal:
 
         goals = client.get("/goals").json()
         assert len(goals) == 0
+
+    def test_delete_nonexistent_goal(self, client: TestClient):
+        """Deleting a non-existent goal returns 404."""
+        response = client.delete("/goals/999")
+        assert response.status_code == 404

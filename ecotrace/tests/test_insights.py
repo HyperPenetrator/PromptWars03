@@ -7,6 +7,7 @@ Uses mocked Gemini responses to avoid API calls during testing.
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from sqlmodel import Session
 
 MOCK_INSIGHT = {
     "summary": "You drove 100 km this week, emitting 17.1 kg CO₂e.",
@@ -82,3 +83,42 @@ class TestWeeklySummary:
         assert data["period"] == "weekly"
         assert data["this_week_entries"] == 1
         assert data["this_week_co2e_kg"] > 0
+
+    @patch("routers.insights.generate_insight", return_value=MOCK_INSIGHT)
+    def test_weekly_summary_with_previous_week(self, mock_gemini, client: TestClient, session: Session):
+        """Weekly summary compares this week's data with previous week."""
+        from datetime import datetime, timezone, timedelta
+        from models import EmissionLog
+
+        # Log for this week (via API)
+        client.post("/logs", json={
+            "category": "diet",
+            "sub_type": "beef_meal",
+            "quantity": 3,
+        })
+
+        # Log for previous week (10 days ago, directly via DB session)
+        past_log = EmissionLog(
+            category="diet",
+            sub_type="beef_meal",
+            quantity=5.0,
+            unit="meal",
+            co2e_kg=15.0,
+            logged_at=datetime.now(timezone.utc) - timedelta(days=10)
+        )
+        session.add(past_log)
+        session.commit()
+
+        response = client.get("/insights/weekly")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["prev_week_co2e_kg"] == 15.0
+
+    @patch(
+        "routers.insights.generate_insight",
+        side_effect=RuntimeError("Gemini API timeout"),
+    )
+    def test_weekly_summary_gemini_failure(self, mock_gemini, client: TestClient):
+        """Gemini failure on weekly summary returns 503."""
+        response = client.get("/insights/weekly")
+        assert response.status_code == 503

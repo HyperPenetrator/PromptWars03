@@ -40,6 +40,19 @@ class TestCreateLog:
         assert data["co2e_kg"] == 6.0
         assert data["unit"] == "meal"
 
+    def test_create_streaming_log(self, client: TestClient):
+        """Streaming logs calculate correctly and return the 'hr' unit."""
+        response = client.post("/logs", json={
+            "category": "shopping",
+            "sub_type": "streaming_hr",
+            "quantity": 10,
+        })
+        assert response.status_code == 201
+        data = response.json()
+        # 10 hrs × 0.036 kg/hr = 0.36 kg
+        assert data["co2e_kg"] == 0.36
+        assert data["unit"] == "hr"
+
     def test_create_log_invalid_category(self, client: TestClient):
         """Invalid category returns 422."""
         response = client.post("/logs", json={

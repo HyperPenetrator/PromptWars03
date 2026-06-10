@@ -141,6 +141,37 @@ const els = {
 let donutChart = null;
 let lineChart = null;
 
+// Modal focus tracking state
+let previousActiveElement = null;
+let activeModal = null;
+
+/**
+ * Trap focus inside the active modal element.
+ * @param {KeyboardEvent} e
+ * @param {HTMLElement} modalEl
+ */
+function trapFocus(e, modalEl) {
+  if (e.key !== "Tab") return;
+  const focusables = modalEl.querySelectorAll(
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  );
+  if (focusables.length === 0) return;
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+
+  if (e.shiftKey) {
+    if (document.activeElement === first) {
+      last.focus();
+      e.preventDefault();
+    }
+  } else {
+    if (document.activeElement === last) {
+      first.focus();
+      e.preventDefault();
+    }
+  }
+}
+
 // ============================================================
 // API Helpers
 // ============================================================
@@ -169,6 +200,21 @@ async function api(path, options = {}) {
   return res.json();
 }
 
+/**
+ * Escape special characters in HTML to prevent XSS.
+ * @param {string} str
+ * @returns {string}
+ */
+function escapeHTML(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 // ============================================================
 // Toast Notifications
 // ============================================================
@@ -183,7 +229,12 @@ function showToast(message, type = "info") {
   toast.className = `toast ${type}`;
 
   const icons = { success: "✅", error: "❌", info: "ℹ️" };
-  toast.innerHTML = `<span>${icons[type]}</span> ${message}`;
+  const iconSpan = document.createElement("span");
+  iconSpan.textContent = icons[type] || "ℹ️";
+  toast.appendChild(iconSpan);
+
+  const textNode = document.createTextNode(" " + message);
+  toast.appendChild(textNode);
 
   els.toastContainer.appendChild(toast);
 
@@ -460,16 +511,16 @@ function renderLogs(logs) {
         hour: "2-digit",
         minute: "2-digit",
       });
-      const note = log.note ? ` · ${log.note}` : "";
+      const note = log.note ? ` · ${escapeHTML(log.note)}` : "";
 
       return `
         <div class="log-item" data-log-id="${log.id}">
-          <div class="log-cat-icon ${log.category}" aria-hidden="true">${icon}</div>
+          <div class="log-cat-icon ${escapeHTML(log.category)}" aria-hidden="true">${icon}</div>
           <div class="log-details">
-            <div class="log-type">${label}</div>
-            <div class="log-meta">${log.quantity} ${log.unit} · ${time}${note}</div>
+            <div class="log-type">${escapeHTML(label)}</div>
+            <div class="log-meta">${escapeHTML(log.quantity)} ${escapeHTML(log.unit)} · ${escapeHTML(time)}${note}</div>
           </div>
-          <div class="log-co2" style="color: ${CAT_COLORS[log.category]}">${log.co2e_kg.toFixed(1)} kg</div>
+          <div class="log-co2" style="color: ${CAT_COLORS[log.category]}">${escapeHTML(log.co2e_kg.toFixed(1))} kg</div>
           <div class="log-actions">
             <button class="btn btn-icon btn-danger" onclick="deleteLog(${log.id})" aria-label="Delete log entry" title="Delete">🗑️</button>
           </div>
@@ -507,17 +558,17 @@ function renderGoals(goals) {
         <div class="goal-item">
           <div class="goal-header">
             <div class="goal-category">
-              <span class="cat-dot ${goal.category}"></span>
-              ${goal.category}
+              <span class="cat-dot ${escapeHTML(goal.category)}"></span>
+              ${escapeHTML(goal.category)}
             </div>
-            <div class="goal-deadline">📅 ${deadlineStr}</div>
+            <div class="goal-deadline">📅 ${escapeHTML(deadlineStr)}</div>
           </div>
           <div class="goal-progress-bar">
-            <div class="goal-progress-fill ${fillClass}" style="width: ${goal.progress_pct}%"></div>
+            <div class="goal-progress-fill ${escapeHTML(fillClass)}" style="width: ${escapeHTML(goal.progress_pct)}%"></div>
           </div>
           <div class="goal-stats">
-            <span class="current">${goal.current_co2e_kg.toFixed(1)} / ${goal.target_co2e_kg.toFixed(1)} kg CO₂e</span>
-            <span>${goal.progress_pct.toFixed(0)}% used</span>
+            <span class="current">${escapeHTML(goal.current_co2e_kg.toFixed(1))} / ${escapeHTML(goal.target_co2e_kg.toFixed(1))} kg CO₂e</span>
+            <span>${escapeHTML(goal.progress_pct.toFixed(0))}% used</span>
           </div>
         </div>
       `;
@@ -546,10 +597,10 @@ function renderInsight(data) {
         <li class="insight-suggestion">
           <span class="suggestion-icon" aria-hidden="true">💡</span>
           <div class="suggestion-text">
-            <div class="suggestion-action">${s.action}</div>
-            <div class="suggestion-saving">↓ ${s.potential_saving_kg?.toFixed(1) || "?"} kg CO₂e potential saving</div>
+            <div class="suggestion-action">${escapeHTML(s.action)}</div>
+            <div class="suggestion-saving">↓ ${escapeHTML(s.potential_saving_kg?.toFixed(1) || "?")} kg CO₂e potential saving</div>
           </div>
-          <span class="difficulty-badge ${diffClass}">${diffClass}</span>
+          <span class="difficulty-badge ${escapeHTML(diffClass)}">${escapeHTML(diffClass)}</span>
         </li>
       `;
     })
@@ -557,13 +608,13 @@ function renderInsight(data) {
 
   els.insightsContainer.innerHTML = `
     <div class="insight-panel">
-      <div class="insight-summary">${insight.summary || "Here are your insights."}</div>
+      <div class="insight-summary">${escapeHTML(insight.summary || "Here are your insights.")}</div>
 
       ${
         insight.top_emission
           ? `<div style="margin-bottom: 16px; padding: 12px 16px; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.15); border-radius: 8px;">
               <span style="color: #f59e0b; font-weight: 700;">⚠️ Top Emission:</span>
-              <span style="color: #fbbf24;">${insight.top_emission.category} — ${insight.top_emission.co2e_kg?.toFixed(1)} kg CO₂e (${insight.top_emission.percentage}%)</span>
+              <span style="color: #fbbf24;">${escapeHTML(insight.top_emission.category)} — ${escapeHTML(insight.top_emission.co2e_kg?.toFixed(1))} kg CO₂e (${escapeHTML(insight.top_emission.percentage)}%)</span>
             </div>`
           : ""
       }
@@ -574,7 +625,7 @@ function renderInsight(data) {
         insight.encouragement
           ? `<div class="insight-encouragement">
               <span aria-hidden="true">🌟</span>
-              ${insight.encouragement}
+              ${escapeHTML(insight.encouragement)}
             </div>`
           : ""
       }
@@ -631,6 +682,9 @@ async function getInsights() {
 // ============================================================
 
 function openLogModal(presetCategory = "") {
+  previousActiveElement = document.activeElement;
+  activeModal = els.logModal;
+
   els.logModal.classList.add("active");
   els.logForm.reset();
   els.logSubtype.disabled = true;
@@ -650,6 +704,11 @@ function openLogModal(presetCategory = "") {
 
 function closeLogModal() {
   els.logModal.classList.remove("active");
+  activeModal = null;
+  if (previousActiveElement) {
+    previousActiveElement.focus();
+    previousActiveElement = null;
+  }
 }
 
 function updateSubTypeOptions(category) {
@@ -712,6 +771,9 @@ async function submitLog(e) {
 // ============================================================
 
 function openGoalModal() {
+  previousActiveElement = document.activeElement;
+  activeModal = els.goalModal;
+
   els.goalModal.classList.add("active");
   els.goalForm.reset();
 
@@ -725,6 +787,11 @@ function openGoalModal() {
 
 function closeGoalModal() {
   els.goalModal.classList.remove("active");
+  activeModal = null;
+  if (previousActiveElement) {
+    previousActiveElement.focus();
+    previousActiveElement = null;
+  }
 }
 
 async function submitGoal(e) {
@@ -793,13 +860,43 @@ function initEventListeners() {
   });
   els.goalForm.addEventListener("submit", submitGoal);
 
-  // Keyboard: Escape closes modals
+  // Keyboard: Escape closes modals, Tab traps focus
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       closeLogModal();
       closeGoalModal();
     }
+    if (activeModal && e.key === "Tab") {
+      trapFocus(e, activeModal);
+    }
   });
+
+  // Tablist arrow key navigation (W3C A11y compliance)
+  const tablist = document.querySelector(".tab-bar");
+  if (tablist) {
+    const tabs = Array.from(els.tabBtns);
+    tablist.addEventListener("keydown", (e) => {
+      let index = tabs.indexOf(document.activeElement);
+      if (index === -1) return;
+
+      let nextIndex = null;
+      if (e.key === "ArrowRight") {
+        nextIndex = (index + 1) % tabs.length;
+      } else if (e.key === "ArrowLeft") {
+        nextIndex = (index - 1 + tabs.length) % tabs.length;
+      } else if (e.key === "Home") {
+        nextIndex = 0;
+      } else if (e.key === "End") {
+        nextIndex = tabs.length - 1;
+      }
+
+      if (nextIndex !== null) {
+        tabs[nextIndex].focus();
+        tabs[nextIndex].click();
+        e.preventDefault();
+      }
+    });
+  }
 }
 
 // ============================================================

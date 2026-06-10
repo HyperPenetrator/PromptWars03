@@ -38,10 +38,7 @@ def _calculate_progress(goal: Goal, session: Session) -> GoalResponse:
 
     # Progress = how much of the target has been "used"
     # 100% means the user hit their target (bad); 0% means no emissions logged
-    if goal.target_co2e_kg > 0:
-        progress_pct = round(min((current_co2e / goal.target_co2e_kg) * 100, 100), 1)
-    else:
-        progress_pct = 100.0
+    progress_pct = round(min((current_co2e / goal.target_co2e_kg) * 100, 100), 1)
 
     return GoalResponse(
         id=goal.id,  # type: ignore[arg-type]
@@ -80,7 +77,43 @@ def list_goals(session: Session = Depends(get_session)):
     """List all goals with their current progress."""
 
     goals = session.exec(select(Goal)).all()
-    return [_calculate_progress(g, session) for g in goals]
+    if not goals:
+        return []
+
+    # Get oldest created_at and set of categories to filter
+    oldest_created = min(g.created_at for g in goals)
+    categories = {g.category for g in goals}
+
+    # Fetch all logs in a single query (solves N+1 query problem)
+    statement = (
+        select(EmissionLog)
+        .where(EmissionLog.category.in_(list(categories)))
+        .where(EmissionLog.logged_at >= oldest_created)
+    )
+    all_logs = session.exec(statement).all()
+
+    # Build responses in-memory
+    responses = []
+    for goal in goals:
+        current_co2e = sum(
+            log.co2e_kg
+            for log in all_logs
+            if log.category == goal.category and log.logged_at >= goal.created_at
+        )
+        progress_pct = round(min((current_co2e / goal.target_co2e_kg) * 100, 100), 1)
+
+        responses.append(
+            GoalResponse(
+                id=goal.id,  # type: ignore[arg-type]
+                category=goal.category,
+                target_co2e_kg=goal.target_co2e_kg,
+                current_co2e_kg=round(current_co2e, 2),
+                progress_pct=progress_pct,
+                created_at=goal.created_at,
+                deadline=goal.deadline,
+            )
+        )
+    return responses
 
 
 @router.patch("/{goal_id}", response_model=GoalResponse)

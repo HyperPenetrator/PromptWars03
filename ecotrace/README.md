@@ -1,3 +1,13 @@
+---
+title: EcoTrace
+emoji: 🌱
+colorFrom: green
+colorTo: blue
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # EcoTrace 🌱
 
 A smart carbon footprint tracker powered by Gemini AI. Track your daily emissions across transport, energy, diet, and shopping — then get personalized, AI-powered suggestions to reduce your environmental impact.
